@@ -1,4 +1,5 @@
 import os
+import time
 import hmac
 from pathlib import Path
 import requests
@@ -19,7 +20,7 @@ CARPETA_PROYECTO = Path(__file__).parent
 ARCHIVO_ENV = CARPETA_PROYECTO / ".env"
 NOMBRE_MODELO = "paraphrase-multilingual-MiniLM-L12-v2"
 # Modelos de Gemini que se prueban en orden (puedes fijar uno con el secreto GEMINI_MODEL)
-MODELOS_GEMINI_POR_DEFECTO = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-flash"]
+MODELOS_GEMINI_POR_DEFECTO = ["gemini-3.8-flash", "gemini-3.6-flash"]
 
 
 # 2. Cargar modelo de embeddings en caché (para no recargarlo en cada búsqueda)
@@ -97,33 +98,40 @@ def generar_respuesta(pregunta: str, resultados):
     modelo_fijo = leer_secreto("GEMINI_MODEL")
     modelos = [modelo_fijo] if modelo_fijo else MODELOS_GEMINI_POR_DEFECTO
 
-    ultimo_error = ""
+    errores = []
     for modelo in modelos:
-        try:
-            r = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent",
-                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-                json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {"temperature": 0.2},
-                },
-                timeout=60,
-            )
-            if r.status_code == 200:
-                partes = r.json()["candidates"][0]["content"]["parts"]
-                texto = "".join(p.get("text", "") for p in partes).strip()
-                if texto:
-                    return texto, None
-                ultimo_error = f"{modelo}: respuesta vacía"
-            else:
+        for intento in range(2):
+            try:
+                r = requests.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent",
+                    headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {"temperature": 0.2},
+                    },
+                    timeout=60,
+                )
+                if r.status_code == 200:
+                    partes = r.json()["candidates"][0]["content"]["parts"]
+                    texto = "".join(p.get("text", "") for p in partes).strip()
+                    if texto:
+                        return texto, None
+                    errores.append(f"{modelo}: respuesta vacía")
+                    break
+                # 429 = demasiadas solicitudes seguidas; 500/503 = servicio ocupado: se reintenta una vez
+                if r.status_code in (429, 500, 503) and intento == 0:
+                    time.sleep(6)
+                    continue
                 try:
-                    detalle = r.json().get("error", {}).get("message", "")[:150]
+                    detalle = r.json().get("error", {}).get("message", "")[:120]
                 except Exception:
                     detalle = ""
-                ultimo_error = f"{modelo}: código {r.status_code} {detalle}".strip()
-        except Exception as e:
-            ultimo_error = f"{modelo}: {type(e).__name__}"
-    return None, ultimo_error
+                errores.append(f"{modelo}: código {r.status_code} {detalle}".strip())
+                break
+            except Exception as e:
+                errores.append(f"{modelo}: {type(e).__name__}")
+                break
+    return None, " | ".join(errores)
 
 
 # 6. Puerta de acceso con clave (solo se activa si existe APP_PASSWORD en los secretos)
@@ -195,7 +203,7 @@ EJEMPLOS = [
     ("¿Qué dijo Erika Valdés sobre salud?",
      "¿Qué dijo Erika Valdés sobre la cobertura de salud?"),
     ("¿Qué respondió el alcalde a Contraloría?",
-     "¿Qué respondió el alcalde a Contraloría?"),
+     "¿Qué respondió el alcalde a Contraloría en el Ordinario N°1100?"),
     ("¿Qué es la bicicleta financiera según las trabajadoras?",
      "¿Qué es la bicicleta financiera según las trabajadoras?"),
     ("¿Qué pasó con los fondos FAEP y la Resolución 6670?",
