@@ -206,8 +206,8 @@ EJEMPLOS = [
      "¿Qué respondió el alcalde a Contraloría en el Ordinario N°1100?"),
     ("¿Qué es la bicicleta financiera según las trabajadoras?",
      "¿Qué es la bicicleta financiera según las trabajadoras?"),
-    ("¿Qué pasó con los fondos FAEP y la Resolución 6670?",
-     "¿Qué pasó con los fondos FAEP y la Resolución Exenta 6670?"),
+    ("¿Qué pasó con los fondos FAEP?",
+     "¿Qué pasó con los fondos FAEP?"),
 ]
 
 st.markdown("##### 💡 Preguntas de ejemplo (haz clic para probar):")
