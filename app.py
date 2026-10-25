@@ -1,4 +1,5 @@
 import os
+import hmac
 from pathlib import Path
 import streamlit as st
 from dotenv import load_dotenv
@@ -73,6 +74,33 @@ def buscar(pregunta: str, top_k: int = 5):
     return resultados
 
 
+# 4b. Puerta de acceso con clave (solo se activa si existe APP_PASSWORD en los secretos)
+def pedir_clave():
+    try:
+        clave_correcta = st.secrets["APP_PASSWORD"]
+    except Exception:
+        clave_correcta = None
+    if not clave_correcta:
+        return
+    if st.session_state.get("acceso_ok"):
+        return
+    st.title("🔒 Acceso restringido")
+    st.write("Este buscador contiene material de una investigación periodística (incluye entrevistas). "
+             "Ingresa la clave que envió la autora.")
+    with st.form("form_clave"):
+        intento = st.text_input("Clave de acceso", type="password")
+        enviar = st.form_submit_button("Entrar")
+    if enviar:
+        if hmac.compare_digest(intento.encode("utf-8"), str(clave_correcta).encode("utf-8")):
+            st.session_state["acceso_ok"] = True
+            st.rerun()
+        else:
+            st.error("Clave incorrecta.")
+    st.stop()
+
+
+pedir_clave()
+
 # 5. Barra Lateral (Sidebar)
 with st.sidebar:
     st.title("📚 Sobre el Proyecto")
@@ -81,7 +109,7 @@ with st.sidebar:
     *Irregularidad Municipal: El destino de las cotizaciones previsionales descontadas a los profesores de Isla de Maipo.*
 
     **Autora:** Constanza Melo Gaete  
-    **Curso:** Periodismo de Investigación I  
+    **Curso:** Periodismo de Investigación II  
     **Universidad de Chile**
 
     ---
