@@ -134,6 +134,16 @@ def generar_respuesta(pregunta: str, resultados):
     return None, " | ".join(errores)
 
 
+@st.cache_data(show_spinner=False, ttl=7 * 24 * 3600)
+def generar_respuesta_cacheada(pregunta: str, resultados):
+    """Guarda en memoria las respuestas ya generadas, para no gastar la cuota gratuita
+    cuando se repite una pregunta. Si falla, lanza una excepción (y así no se guarda el fallo)."""
+    respuesta, error = generar_respuesta(pregunta, resultados)
+    if not respuesta:
+        raise RuntimeError(error or "desconocido")
+    return respuesta
+
+
 # 6. Puerta de acceso con clave (solo se activa si existe APP_PASSWORD en los secretos)
 def pedir_clave():
     try:
@@ -206,8 +216,8 @@ EJEMPLOS = [
      "¿Qué respondió el alcalde a Contraloría en el Ordinario N°1100?"),
     ("¿Qué es la bicicleta financiera según las trabajadoras?",
      "¿Qué es la bicicleta financiera según las trabajadoras?"),
-    ("¿Qué pasó con los fondos FAEP?",
-     "¿Qué pasó con los fondos FAEP?"),
+    ("¿Qué pasó con los fondos FAEP y la Resolución 6670?",
+     "¿Qué pasó con los fondos FAEP y la Resolución Exenta 6670?"),
 ]
 
 st.markdown("##### 💡 Preguntas de ejemplo (haz clic para probar):")
@@ -237,23 +247,23 @@ if pregunta.strip():
         with st.spinner("Buscando los trozos más relevantes en Neon..."):
             resultados = buscar(pregunta_limpia, top_k=top_k)
 
-        # Respuesta generada (se guarda por pregunta para no repetir la llamada en cada recarga)
-        clave_cache = f"respuesta::{pregunta_limpia}::{top_k}"
-        if clave_cache not in st.session_state:
+        # Respuesta generada (las preguntas repetidas se leen de memoria y no gastan cuota)
+        respuesta = None
+        error = None
+        try:
             with st.spinner("Redactando la respuesta con los trozos encontrados..."):
-                respuesta, error = generar_respuesta(pregunta_limpia, resultados)
-            if respuesta:
-                st.session_state[clave_cache] = respuesta
-            else:
-                st.session_state[f"error::{clave_cache}"] = error
+                respuesta = generar_respuesta_cacheada(pregunta_limpia, resultados)
+        except Exception as e:
+            error = str(e)
 
         st.markdown("### 🧠 Respuesta generada")
-        if clave_cache in st.session_state:
-            st.success(st.session_state[clave_cache])
+        if respuesta:
+            st.success(respuesta.replace("$", "\\$"))
             st.caption("Respuesta redactada por una IA usando solo los trozos de abajo. Verifica siempre en el documento original.")
         else:
-            st.warning("No se pudo generar la respuesta automática. Los trozos encontrados aparecen abajo. "
-                       f"Detalle: {st.session_state.get(f'error::{clave_cache}', 'desconocido')}")
+            st.warning("No se pudo generar la respuesta automática (puede ser el límite de uso gratuito de la IA, "
+                       "que se renueva cada día). Los trozos encontrados aparecen abajo: la búsqueda en Neon funciona igual. "
+                       f"Detalle: {error or 'desconocido'}")
 
         st.markdown(f"### 📋 Fuentes: los {len(resultados)} trozos más relevantes")
 
@@ -270,7 +280,7 @@ if pregunta.strip():
 
             with st.expander(f"[{i}] {badge} | 📄 {doc} (Pág. {pag})", expanded=False):
                 st.markdown(f"**Documento:** `{doc}` &nbsp;|&nbsp; **Página:** `{pag}` &nbsp;|&nbsp; **Similitud:** `{similitud_pct:.2f}%`")
-                st.info(texto)
+                st.info(texto.replace("$", "\\$"))
 
     except Exception as e:
         st.error(f"Error al realizar la consulta: {e}")
