@@ -1,6 +1,7 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
 streamlit>=1.35.0
+requests
 python-dotenv>=1.0.0
 psycopg2-binary>=2.9.9
 pgvector>=0.3.0
