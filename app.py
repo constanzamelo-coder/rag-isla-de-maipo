@@ -118,8 +118,8 @@ def generar_respuesta(pregunta: str, resultados):
                         return texto, None
                     errores.append(f"{modelo}: respuesta vacía")
                     break
-                # 429 = demasiadas solicitudes seguidas; 500/503 = servicio ocupado: se reintenta una vez
-                if r.status_code in (429, 500, 503) and intento == 0:
+                # 500/503 = servicio ocupado: se reintenta una vez (con 429, que es límite de cuota, no se insiste)
+                if r.status_code in (500, 503) and intento == 0:
                     time.sleep(6)
                     continue
                 try:
@@ -134,13 +134,55 @@ def generar_respuesta(pregunta: str, resultados):
     return None, " | ".join(errores)
 
 
-@st.cache_data(show_spinner=False, ttl=7 * 24 * 3600)
+def leer_respuesta_guardada(pregunta: str, top_k: int):
+    """Busca en Neon si esta pregunta ya fue respondida antes (para no gastar la cuota gratuita)."""
+    try:
+        conn = obtener_conexion()
+        cur = conn.cursor()
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS respuestas_guardadas ("
+            "pregunta TEXT, top_k INT, respuesta TEXT, PRIMARY KEY (pregunta, top_k))"
+        )
+        conn.commit()
+        cur.execute(
+            "SELECT respuesta FROM respuestas_guardadas WHERE pregunta = %s AND top_k = %s",
+            (pregunta, top_k),
+        )
+        fila = cur.fetchone()
+        cur.close()
+        conn.close()
+        return fila[0] if fila else None
+    except Exception:
+        return None
+
+
+def guardar_respuesta(pregunta: str, top_k: int, respuesta: str):
+    try:
+        conn = obtener_conexion()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO respuestas_guardadas (pregunta, top_k, respuesta) VALUES (%s, %s, %s) "
+            "ON CONFLICT (pregunta, top_k) DO NOTHING",
+            (pregunta, top_k, respuesta),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception:
+        pass
+
+
 def generar_respuesta_cacheada(pregunta: str, resultados):
-    """Guarda en memoria las respuestas ya generadas, para no gastar la cuota gratuita
-    cuando se repite una pregunta. Si falla, lanza una excepción (y así no se guarda el fallo)."""
+    """Primero mira si la respuesta ya está guardada en Neon; si no, la genera con Gemini y la guarda.
+    Si falla, lanza una excepción (y así no se guarda el fallo)."""
+    top_k = len(resultados)
+    guardada = leer_respuesta_guardada(pregunta, top_k)
+    if guardada:
+        return guardada
     respuesta, error = generar_respuesta(pregunta, resultados)
     if not respuesta:
         raise RuntimeError(error or "desconocido")
+    guardar_respuesta(pregunta, top_k, respuesta)
     return respuesta
 
 
